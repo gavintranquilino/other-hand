@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ESP32 Audio Stream Monitor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .level-meter {
+            width: 100%;
+            height: 30px;
+            background-color: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .level-bar {
+            height: 100%;
+            background: linear-gradient(to right, #4CAF50, #FFC107, #FF5722);
+            transition: width 0.1s ease;
+            width: 0%;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        #log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ESP32 Audio Stream Monitor</h1>
+        
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <div class="controls">
+            <input type="text" id="ipAddress" placeholder="ESP32 IP Address (e.g., 192.168.1.100)" style="width: 250px; padding: 8px;">
+            <button onclick="connect()">Connect</button>
+            <button onclick="disconnect()">Disconnect</button>
+        </div>
+        
+        <div>
+            <label>Audio Level:</label>
+            <div class="level-meter">
+                <div class="level-bar" id="levelBar"></div>
+            </div>
+            <div id="levelText">Level: 0</div>
+        </div>
+        
+        <div>
+            <h3>Log:</h3>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isConnected = false;
+        
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${time}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        function updateStatus(connected) {
+            const statusDiv = document.getElementById('status');
+            isConnected = connected;
+            if (connected) {
+                statusDiv.className = 'status connected';
+                statusDiv.textContent = 'Connected';
+            } else {
+                statusDiv.className = 'status disconnected';
+                statusDiv.textContent = 'Disconnected';
+            }
+        }
+        
+        function connect() {
+            const ip = document.getElementById('ipAddress').value;
+            if (!ip) {
+                alert('Please enter ESP32 IP address');
+                return;
+            }
+            
+            if (ws) {
+                ws.close();
+            }
+            
+            log(`Connecting to ws://${ip}:81`);
+            ws = new WebSocket(`ws://${ip}:81`);
+            
+            ws.onopen = function() {
+                log('Connected to ESP32');
+                updateStatus(true);
+            };
+            
+            ws.onclose = function() {
+                log('Connection closed');
+                updateStatus(false);
+            };
+            
+            ws.onerror = function(error) {
+                log('Connection error: ' + error);
+                updateStatus(false);
+            };
+            
+            ws.onmessage = function(event) {
+                if (event.data instanceof Blob) {
+                    // Binary audio data
+                    event.data.arrayBuffer().then(buffer => {
+                        const samples = new Int16Array(buffer);
+                        let max = 0;
+                        let sum = 0;
+                        
+                        for (let i = 0; i < samples.length; i++) {
+                            const abs = Math.abs(samples[i]);
+                            if (abs > max) max = abs;
+                            sum += abs;
+                        }
+                        
+                        const avg = sum / samples.length;
+                        const percentage = Math.min((max / 32767) * 100, 100);
+                        
+                        document.getElementById('levelBar').style.width = percentage + '%';
+                        document.getElementById('levelText').textContent = `Level: ${Math.round(avg)} (Peak: ${max})`;
+                    });
+                } else {
+                    // Text message
+                    log('Received: ' + event.data);
+                }
+            };
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                log('Disconnected');
+                updateStatus(false);
+            }
+        }
+        
+        // Auto-populate with common ESP32 IP range
+        document.getElementById('ipAddress').value = '192.168.1.100';
+        
+        log('Audio stream monitor ready. Enter ESP32 IP and click Connect.');
+    </script>
+</body>
+</html>
