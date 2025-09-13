@@ -2,6 +2,7 @@
 Name: Calculator
 Description: Perform basic mathematical calculations.
 Icon: 🧮
+Color: #ffb347
 """
 
 import random
@@ -28,3 +29,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# test

@@ -2,6 +2,7 @@
 Name: Music Control
 Description: Control music playback (play, pause, next track).
 Icon: 🎵
+Color: #DDA0DD
 """
 
 import random

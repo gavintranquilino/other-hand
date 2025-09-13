@@ -42,6 +42,9 @@
             <!-- Center Panel: Button Grid -->
             <div class="center-panel">
                 <div class="binary-grid">
+                    <div class="panel-header text-center">
+                        <h5 class="mb-3">Module Layout</h5>
+                    </div>
                     <div class="grid-container">
                         <!-- Column 1 -->
                         <div class="grid-column">
@@ -123,12 +126,6 @@
                         </div>
                     </div>
                 </div>
-
-                <!-- Save Layout Button -->
-                <div class="save-section">
-                    <button id="save-layout" class="btn btn-primary btn-lg">Save Layout</button>
-                    <div id="save-status" class="mt-2"></div>
-                </div>
             </div>
 
             <!-- Right Panel: Device Status / Module Details -->
@@ -149,13 +146,17 @@
                         <span class="status-label">Live Preview:</span>
                         <div id="button-preview" class="button-preview">
                             <div class="preview-grid">
+                                <!-- Row 1: Top row slots (1, 2) -->
                                 <div class="preview-button" data-preview="000"></div>
-                                <div class="preview-button" data-preview="100"></div>
                                 <div class="preview-button" data-preview="001"></div>
-                                <div class="preview-button" data-preview="101"></div>
+                                <!-- Row 2: Second row slots (3, 4) -->
                                 <div class="preview-button" data-preview="010"></div>
-                                <div class="preview-button" data-preview="110"></div>
                                 <div class="preview-button" data-preview="011"></div>
+                                <!-- Row 3: Third row slots (5, 6) -->
+                                <div class="preview-button" data-preview="100"></div>
+                                <div class="preview-button" data-preview="101"></div>
+                                <!-- Row 4: Bottom row slots (7, 8) -->
+                                <div class="preview-button" data-preview="110"></div>
                                 <div class="preview-button" data-preview="111"></div>
                             </div>
                         </div>
@@ -173,6 +174,15 @@
                 </div>
                 <div id="module-details">
                     <p class="text-muted">Click on a module to view its details.</p>
+                    <div id="module-actions" style="display: none;" class="mt-3">
+                        <button id="edit-btn" class="btn btn-warning btn-sm me-2">Edit</button>
+                        <button id="test-btn" class="btn btn-success btn-sm me-2">Test</button>
+                        <button id="delete-btn" class="btn btn-danger btn-sm">Delete</button>
+                    </div>
+                    <div id="test-output" style="display: none;" class="mt-3">
+                        <h6>Test Output:</h6>
+                        <pre id="test-log" class="bg-light p-2 rounded" style="font-size: 12px; max-height: 200px; overflow-y: auto;"></pre>
+                    </div>
                 </div>
             </div>
         </div>

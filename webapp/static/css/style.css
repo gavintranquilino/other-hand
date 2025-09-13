@@ -224,7 +224,7 @@ header h1 {
     margin-top: 20px;
 }
 
-/* Module Styles with Pastel Colors */
+/* Module Styles with Pastel Colors - only apply to modules without custom colors */
 .module-item {
     display: flex;
     flex-direction: column;
@@ -241,11 +241,12 @@ header h1 {
     border: 2px solid transparent;
 }
 
-.module-item:nth-child(5n+1) { background-color: var(--pastel-blue); }
-.module-item:nth-child(5n+2) { background-color: var(--pastel-green); }
-.module-item:nth-child(5n+3) { background-color: var(--pastel-yellow); }
-.module-item:nth-child(5n+4) { background-color: var(--pastel-pink); }
-.module-item:nth-child(5n) { background-color: var(--pastel-purple); }
+/* Default pastel colors - only applied when no custom color is set */
+.module-item:not([data-custom-color]):nth-child(5n+1) { background-color: var(--pastel-blue); }
+.module-item:not([data-custom-color]):nth-child(5n+2) { background-color: var(--pastel-green); }
+.module-item:not([data-custom-color]):nth-child(5n+3) { background-color: var(--pastel-yellow); }
+.module-item:not([data-custom-color]):nth-child(5n+4) { background-color: var(--pastel-pink); }
+.module-item:not([data-custom-color]):nth-child(5n) { background-color: var(--pastel-purple); }
 
 .module-item:hover {
     transform: translateY(-2px);
@@ -674,4 +675,67 @@ header h1 {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+/* Edit form styles */
+.edit-form {
+    display: none;
+}
+
+.edit-form .form-group {
+    margin-bottom: 15px;
+}
+
+.edit-form label {
+    font-weight: bold;
+    color: #666;
+    margin-bottom: 5px;
+    display: block;
+}
+
+.edit-form input, 
+.edit-form textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.edit-form textarea {
+    font-family: monospace;
+    min-height: 200px;
+    resize: vertical;
+}
+
+.edit-form .form-row {
+    display: flex;
+    gap: 10px;
+}
+
+.edit-form .form-col {
+    flex: 1;
+}
+
+#test-output {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px;
+    margin-top: 15px;
+}
+
+#test-log {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.test-success {
+    border-color: #28a745;
+    background-color: #f8fff9;
+}
+
+.test-error {
+    border-color: #dc3545;
+    background-color: #fff8f8;
 }
