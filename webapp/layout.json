@@ -1,10 +1,10 @@
 {
-  "100": null,
-  "101": "note",
-  "110": null,
-  "111": null,
-  "000": "calculator",
-  "001": "linkedin",
-  "010": "music",
-  "011": "weather"
+  "100": "mouse_click",
+  "101": "music",
+  "110": "vine_boom",
+  "111": "shutdown",
+  "000": "linkedin",
+  "001": "minecraft",
+  "010": "RLCS",
+  "011": "screenshot"
 }

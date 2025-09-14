@@ -6,16 +6,28 @@ import re
 import asyncio
 import threading
 import logging
+import subprocess
+import sys
 from bleak import BleakClient, BleakScanner
 import time
 import platform
+from pathlib import Path
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Configuration
-SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), 'scripts')
-LAYOUT_FILE = os.path.join(os.path.dirname(__file__), 'layout.json')
+# Configuration - OS agnostic paths
+BASE_DIR = Path(__file__).parent
+SCRIPTS_DIR = BASE_DIR / 'scripts'
+LAYOUT_FILE = BASE_DIR / 'layout.json'
+
+# Ensure directories exist
+SCRIPTS_DIR.mkdir(exist_ok=True)
+
+# OS Detection
+IS_WINDOWS = platform.system() == "Windows"
+IS_LINUX = platform.system() == "Linux"
+IS_MACOS = platform.system() == "Darwin"
 
 # ESP32 BLE Configuration
 DEVICE_NAME = "Other Hand HTN25"
@@ -52,39 +64,94 @@ def parse_activation_type(activation_str):
     # Default to "on press"
     return "press", 0
 
+def get_python_executable():
+    """Get the correct Python executable for the current OS"""
+    if IS_WINDOWS:
+        # On Windows, prefer python.exe, then py.exe, then sys.executable
+        try:
+            result = subprocess.run(['python', '--version'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                return 'python'
+        except:
+            pass
+        
+        try:
+            result = subprocess.run(['py', '--version'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                return 'py'
+        except:
+            pass
+    
+    # Fallback to sys.executable (works on all platforms)
+    return sys.executable
+
 def get_module_script(slot_id):
     """Get the script for a given slot ID from the layout"""
     try:
-        if os.path.exists(LAYOUT_FILE):
-            with open(LAYOUT_FILE, 'r') as f:
+        if LAYOUT_FILE.exists():
+            with open(LAYOUT_FILE, 'r', encoding='utf-8') as f:
                 layout = json.load(f)
                 module_id = layout.get(slot_id)
                 if module_id:
-                    script_path = os.path.join(SCRIPTS_DIR, f"{module_id}.py")
-                    if os.path.exists(script_path):
-                        return script_path, module_id
+                    script_path = SCRIPTS_DIR / f"{module_id}.py"
+                    if script_path.exists():
+                        return str(script_path), module_id
         return None, None
     except Exception as e:
         print(f"Error getting module script: {e}")
         return None, None
 
 def execute_script(script_path, module_id, reason=""):
-    """Execute a script and log the output"""
+    """Execute a script and log the output - OS agnostic"""
     try:
-        import subprocess
-        result = subprocess.run(['python', script_path], 
-                              capture_output=True, 
-                              text=True, 
-                              timeout=30)
+        python_cmd = get_python_executable()
         
-        output = result.stdout if result.stdout else result.stderr
+        # Create platform-appropriate command
+        if IS_WINDOWS:
+            # On Windows, handle spaces in paths and use shell=True for better compatibility
+            cmd = [python_cmd, str(script_path)]
+            result = subprocess.run(cmd, 
+                                  capture_output=True, 
+                                  text=True, 
+                                  timeout=30,
+                                  shell=False,
+                                  encoding='utf-8',
+                                  errors='replace')
+        else:
+            # On Linux/macOS, use standard approach
+            result = subprocess.run([python_cmd, str(script_path)], 
+                                  capture_output=True, 
+                                  text=True, 
+                                  timeout=30,
+                                  encoding='utf-8',
+                                  errors='replace')
+        
+        # Get output, handling both stdout and stderr
+        output = ""
+        if result.stdout:
+            output += result.stdout
+        if result.stderr:
+            if output:
+                output += "\n"
+            output += f"STDERR: {result.stderr}"
+        
+        if not output:
+            output = f"Script completed with return code: {result.returncode}"
+        
         log_msg = f"🚀 Executed {module_id} {reason}: {output.strip()}"
         if ble_receiver:
             ble_receiver.add_log(log_msg)
         print(log_msg)
         
     except subprocess.TimeoutExpired:
-        error_msg = f"❌ Script {module_id} timed out"
+        error_msg = f"❌ Script {module_id} timed out (30s)"
+        if ble_receiver:
+            ble_receiver.add_log(error_msg, "error")
+        print(error_msg)
+    except FileNotFoundError as e:
+        error_msg = f"❌ Python executable not found for {module_id}: {e}"
         if ble_receiver:
             ble_receiver.add_log(error_msg, "error")
         print(error_msg)
@@ -226,48 +293,81 @@ class WebAppBLEReceiver:
         self.socketio.emit('ble_status', {'connected': False})
 
     async def find_and_connect_device(self):
-        """Find ESP32 device and establish connection"""
+        """Find ESP32 device and establish connection - OS agnostic"""
         self.add_log("🔍 Scanning for ESP32...")
         
-        # Scan for device
+        # Platform-specific configuration
+        if IS_WINDOWS:
+            scan_timeout = 25.0
+            connect_timeout = 60.0
+            stabilization_delay = 6.0
+            retry_delay = 4.0
+        elif IS_LINUX:
+            scan_timeout = 15.0
+            connect_timeout = 30.0
+            stabilization_delay = 3.0
+            retry_delay = 2.0
+        else:  # macOS
+            scan_timeout = 20.0
+            connect_timeout = 40.0
+            stabilization_delay = 4.0
+            retry_delay = 3.0
+        
+        # Scan for device with multiple attempts
+        target_device = None
         for scan_attempt in range(3):
             try:
-                devices = await BleakScanner.discover(timeout=15.0)
+                self.add_log(f"🔍 Scan attempt {scan_attempt + 1}/3 (timeout: {scan_timeout}s)")
+                devices = await BleakScanner.discover(timeout=scan_timeout)
                 
-                target_device = None
+                self.add_log(f"📱 Found {len(devices)} BLE devices")
+                
                 for device in devices:
-                    if (device.name == DEVICE_NAME or 
-                        device.address.upper() == DEVICE_MAC.upper()):
+                    # Check both name and MAC address (case-insensitive)
+                    device_name = device.name or "Unknown"
+                    device_addr = device.address.upper().replace(":", "").replace("-", "")
+                    target_addr = DEVICE_MAC.upper().replace(":", "").replace("-", "")
+                    
+                    if (device_name == DEVICE_NAME or device_addr == target_addr):
                         target_device = device
+                        self.add_log(f"✅ Found target device: {device_name} ({device.address})")
                         break
                 
                 if target_device:
-                    self.add_log(f"✅ Found {target_device.name} ({target_device.address})")
                     break
                 else:
-                    self.add_log(f"❌ Device not found in scan {scan_attempt + 1}/3", "warning")
+                    self.add_log(f"❌ Target device not found in scan {scan_attempt + 1}/3", "warning")
                     if scan_attempt < 2:
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(retry_delay)
                         
             except Exception as e:
                 self.add_log(f"❌ Scan attempt {scan_attempt + 1} failed: {e}", "error")
+                if scan_attempt < 2:
+                    await asyncio.sleep(retry_delay)
                 
         if not target_device:
-            raise Exception("ESP32 device not found after multiple scan attempts")
+            raise Exception(f"ESP32 device '{DEVICE_NAME}' not found after {3} scan attempts")
         
-        # Connect to device
-        self.add_log(f"🔗 Connecting to {target_device.address}...")
+        # Connect to device with OS-specific settings
+        self.add_log(f"🔗 Connecting to {target_device.address} (timeout: {connect_timeout}s)...")
         
-        self.client = BleakClient(
-            target_device.address,
-            disconnected_callback=self.disconnect_handler,
-            timeout=30.0,
-            use_cached_services=True,
-        )
+        # Create client with OS-specific parameters
+        client_kwargs = {
+            "address_or_ble_device": target_device.address,
+            "disconnected_callback": self.disconnect_handler,
+            "timeout": connect_timeout,
+        }
+        
+        # Windows-specific: don't use cached services (can cause issues)
+        if not IS_WINDOWS:
+            client_kwargs["use_cached_services"] = True
+        
+        self.client = BleakClient(**client_kwargs)
         
         # Connect with retries
         for attempt in range(3):
             try:
+                self.add_log(f"🔗 Connection attempt {attempt + 1}/3...")
                 await self.client.connect()
                 
                 if self.client.is_connected:
@@ -279,13 +379,14 @@ class WebAppBLEReceiver:
             except Exception as e:
                 self.add_log(f"❌ Connection attempt {attempt + 1} failed: {e}", "error")
                 if attempt < 2:
-                    await asyncio.sleep(2)
+                    self.add_log(f"⏳ Retrying in {retry_delay}s...")
+                    await asyncio.sleep(retry_delay)
                 else:
                     raise Exception(f"Failed to connect after 3 attempts: {e}")
         
-        # Stabilization delay
-        self.add_log("⏳ Stabilizing connection...")
-        await asyncio.sleep(3.0)
+        # Platform-specific stabilization
+        self.add_log(f"⏳ Stabilizing connection ({stabilization_delay}s)...")
+        await asyncio.sleep(stabilization_delay)
         
         if not self.client.is_connected:
             raise Exception("Connection lost during stabilization")
@@ -363,10 +464,20 @@ class WebAppBLEReceiver:
         self.socketio.emit('ble_status', {'connected': False})
 
     async def run(self):
-        """Main run loop with reconnection logic"""
+        """Main run loop with OS-agnostic reconnection logic"""
         self.is_running = True
         
-        while self.is_running and self.reconnect_count < self.max_reconnect_attempts:
+        # Platform-specific retry settings
+        if IS_WINDOWS:
+            max_attempts = 8  # Windows needs more attempts
+            base_delay = 6
+            max_delay = 30
+        else:
+            max_attempts = 5
+            base_delay = 3
+            max_delay = 20
+        
+        while self.is_running and self.reconnect_count < max_attempts:
             try:
                 # Connect to device
                 await self.find_and_connect_device()
@@ -384,12 +495,13 @@ class WebAppBLEReceiver:
                 self.add_log(f"❌ Connection error: {e}", "error")
                 self.reconnect_count += 1
                 
-                if self.reconnect_count < self.max_reconnect_attempts:
-                    delay = min(5 + self.reconnect_count * 2, 20)
-                    self.add_log(f"🔄 Reconnecting in {delay}s... (attempt {self.reconnect_count}/{self.max_reconnect_attempts})")
+                if self.reconnect_count < max_attempts:
+                    # Exponential backoff with platform-specific limits
+                    delay = min(base_delay + self.reconnect_count * 2, max_delay)
+                    self.add_log(f"🔄 Reconnecting in {delay}s... (attempt {self.reconnect_count}/{max_attempts})")
                     await asyncio.sleep(delay)
                 else:
-                    self.add_log(f"❌ Max reconnection attempts ({self.max_reconnect_attempts}) reached", "error")
+                    self.add_log(f"❌ Max reconnection attempts ({max_attempts}) reached", "error")
                     break
         
         self.is_running = False
@@ -400,9 +512,9 @@ class WebAppBLEReceiver:
         self.is_running = False
 
 def parse_script_metadata(file_path):
-    """Parse name, description, icon, color, and activation from script docstring"""
+    """Parse name, description, icon, color, and activation from script docstring - OS agnostic"""
     try:
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
             content = f.read()
         
         # Extract docstring
@@ -419,7 +531,7 @@ def parse_script_metadata(file_path):
         color_match = re.search(r'Color:\s*(.+)', docstring)
         activation_match = re.search(r'Activation:\s*(.+)', docstring)
         
-        name = name_match.group(1).strip() if name_match else os.path.basename(file_path).replace('.py', '')
+        name = name_match.group(1).strip() if name_match else Path(file_path).stem
         description = desc_match.group(1).strip() if desc_match else "No description available"
         icon = icon_match.group(1).strip() if icon_match else "🔧"
         color = color_match.group(1).strip() if color_match else None
@@ -431,9 +543,9 @@ def parse_script_metadata(file_path):
         return None, None, None, None, None
 
 def get_script_code(file_path):
-    """Read the full script code"""
+    """Read the full script code - OS agnostic"""
     try:
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
             return f.read()
     except Exception as e:
         print(f"Error reading {file_path}: {e}")
@@ -446,37 +558,38 @@ def index():
 
 @app.route('/api/scripts')
 def get_scripts():
-    """Get all available scripts with metadata"""
+    """Get all available scripts with metadata - OS agnostic"""
     scripts = []
     
-    if not os.path.exists(SCRIPTS_DIR):
-        os.makedirs(SCRIPTS_DIR)
+    # Ensure scripts directory exists
+    SCRIPTS_DIR.mkdir(exist_ok=True)
     
-    for filename in os.listdir(SCRIPTS_DIR):
-        if filename.endswith('.py'):
-            file_path = os.path.join(SCRIPTS_DIR, filename)
-            name, description, icon, color, activation = parse_script_metadata(file_path)
+    try:
+        for file_path in SCRIPTS_DIR.glob('*.py'):
+            name, description, icon, color, activation = parse_script_metadata(str(file_path))
             
             if name:  # Only include if we could parse metadata
                 scripts.append({
-                    'id': filename.replace('.py', ''),
+                    'id': file_path.stem,
                     'name': name,
                     'description': description,
                     'icon': icon,
                     'color': color,
                     'activation': activation,
-                    'path': filename,
-                    'code': get_script_code(file_path)
+                    'path': file_path.name,
+                    'code': get_script_code(str(file_path))
                 })
+    except Exception as e:
+        print(f"Error reading scripts directory: {e}")
     
     return jsonify(scripts)
 
 @app.route('/api/layout', methods=['GET'])
 def get_layout():
-    """Get the current layout"""
-    if os.path.exists(LAYOUT_FILE):
+    """Get the current layout - OS agnostic"""
+    if LAYOUT_FILE.exists():
         try:
-            with open(LAYOUT_FILE, 'r') as f:
+            with open(LAYOUT_FILE, 'r', encoding='utf-8') as f:
                 layout = json.load(f)
             return jsonify(layout)
         except Exception as e:
@@ -490,11 +603,11 @@ def get_layout():
 
 @app.route('/api/layout', methods=['POST'])
 def save_layout():
-    """Save the current layout"""
+    """Save the current layout - OS agnostic"""
     try:
         layout = request.json
-        with open(LAYOUT_FILE, 'w') as f:
-            json.dump(layout, f, indent=2)
+        with open(LAYOUT_FILE, 'w', encoding='utf-8') as f:
+            json.dump(layout, f, indent=2, ensure_ascii=False)
         return jsonify({"success": True})
     except Exception as e:
         print(f"Error saving layout: {e}")
@@ -524,12 +637,12 @@ def create_script():
             script_id = 'untitled_script'
         
         # Check if file already exists
-        script_path = os.path.join(SCRIPTS_DIR, f"{script_id}.py")
+        script_path = SCRIPTS_DIR / f"{script_id}.py"
         counter = 1
         original_id = script_id
-        while os.path.exists(script_path):
+        while script_path.exists():
             script_id = f"{original_id}_{counter}"
-            script_path = os.path.join(SCRIPTS_DIR, f"{script_id}.py")
+            script_path = SCRIPTS_DIR / f"{script_id}.py"
             counter += 1
         
         # Create the script content
@@ -542,8 +655,8 @@ Icon: {icon}
 
 {code}'''
         
-        # Write the script file
-        with open(script_path, 'w') as f:
+        # Write the script file with proper encoding
+        with open(script_path, 'w', encoding='utf-8') as f:
             f.write(script_content)
             
         return jsonify({
@@ -557,12 +670,12 @@ Icon: {icon}
 
 @app.route('/api/scripts/<script_id>', methods=['PUT'])
 def update_script(script_id):
-    """Update an existing script"""
+    """Update an existing script - OS agnostic"""
     try:
         data = request.json
-        script_path = os.path.join(SCRIPTS_DIR, f"{script_id}.py")
+        script_path = SCRIPTS_DIR / f"{script_id}.py"
         
-        if not os.path.exists(script_path):
+        if not script_path.exists():
             return jsonify({"success": False, "error": "Script not found"}), 404
         
         # Create the updated script content
@@ -581,8 +694,8 @@ Icon: {icon}
 
 {code}'''
         
-        # Write the updated script
-        with open(script_path, 'w') as f:
+        # Write the updated script with proper encoding
+        with open(script_path, 'w', encoding='utf-8') as f:
             f.write(script_content)
             
         return jsonify({"success": True})
@@ -592,14 +705,14 @@ Icon: {icon}
 
 @app.route('/api/scripts/<script_id>', methods=['DELETE'])
 def delete_script(script_id):
-    """Delete a script"""
+    """Delete a script - OS agnostic"""
     try:
-        script_path = os.path.join(SCRIPTS_DIR, f"{script_id}.py")
+        script_path = SCRIPTS_DIR / f"{script_id}.py"
         
-        if not os.path.exists(script_path):
+        if not script_path.exists():
             return jsonify({"success": False, "error": "Script not found"}), 404
         
-        os.remove(script_path)
+        script_path.unlink()  # Pathlib method for deleting files
         return jsonify({"success": True})
     except Exception as e:
         print(f"Error deleting script: {e}")
@@ -607,68 +720,107 @@ def delete_script(script_id):
 
 @app.route('/api/scripts/<script_id>/test', methods=['POST'])
 def test_script(script_id):
-    """Test a script by running it and capturing output"""
+    """Test a script by running it and capturing output - OS agnostic"""
     try:
-        script_path = os.path.join(SCRIPTS_DIR, f"{script_id}.py")
+        script_path = SCRIPTS_DIR / f"{script_id}.py"
         
-        if not os.path.exists(script_path):
+        if not script_path.exists():
             return jsonify({"success": False, "error": "Script not found"}), 404
         
-        # Run the script and capture output
-        import subprocess
-        import sys
-        from io import StringIO
-        import contextlib
-        
-        # Create a StringIO object to capture output
-        output = StringIO()
-        error_output = StringIO()
-        
+        # Use subprocess for more reliable cross-platform execution
         try:
-            # Read the script content
-            with open(script_path, 'r') as f:
-                script_content = f.read()
+            python_cmd = get_python_executable()
             
-            # Create a global namespace with built-in modules available
-            global_namespace = {
-                "__name__": "__main__",
-                "__builtins__": __builtins__,
-                "webbrowser": __import__("webbrowser"),
-                "os": __import__("os"),
-                "sys": __import__("sys"),
-                "random": __import__("random"),
-                "re": __import__("re"),
-                "json": __import__("json"),
-                "datetime": __import__("datetime"),
-                "time": __import__("time"),
-                "platform": __import__("platform"),
-            }
+            # Run with platform-appropriate settings
+            if IS_WINDOWS:
+                result = subprocess.run(
+                    [python_cmd, str(script_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    encoding='utf-8',
+                    errors='replace',
+                    shell=False
+                )
+            else:
+                result = subprocess.run(
+                    [python_cmd, str(script_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    encoding='utf-8',
+                    errors='replace'
+                )
             
-            # Create a local namespace for execution
-            local_namespace = {}
-            
-            # Capture stdout and stderr
-            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error_output):
-                exec(script_content, global_namespace, local_namespace)
-                
-                # Don't call main() explicitly - let the script handle its own execution
-                # The script will run its own if __name__ == "__main__": block
-            
-            stdout_content = output.getvalue()
-            stderr_content = error_output.getvalue()
+            stdout_content = result.stdout or ""
+            stderr_content = result.stderr or ""
             
             return jsonify({
                 "success": True,
                 "output": stdout_content,
-                "error": stderr_content if stderr_content else None
+                "error": stderr_content if stderr_content else None,
+                "return_code": result.returncode
             })
             
-        except Exception as exec_error:
+        except subprocess.TimeoutExpired:
             return jsonify({
                 "success": False,
-                "output": output.getvalue(),
-                "error": str(exec_error)
+                "output": "",
+                "error": "Script execution timed out (10s limit)"
             })
+        except Exception as subprocess_error:
+            # Fallback to exec() method
+            try:
+                from io import StringIO
+                import contextlib
+                
+                # Read the script content
+                with open(script_path, 'r', encoding='utf-8') as f:
+                    script_content = f.read()
+                
+                # Create output capture
+                output = StringIO()
+                error_output = StringIO()
+                
+                # Create a safe namespace
+                safe_globals = {
+                    "__name__": "__main__",
+                    "__builtins__": __builtins__,
+                    "print": print,
+                }
+                
+                # Add common modules
+                try:
+                    safe_globals.update({
+                        "os": __import__("os"),
+                        "sys": __import__("sys"),
+                        "json": __import__("json"),
+                        "time": __import__("time"),
+                        "random": __import__("random"),
+                        "datetime": __import__("datetime"),
+                        "webbrowser": __import__("webbrowser"),
+                        "platform": __import__("platform"),
+                        "pathlib": __import__("pathlib"),
+                    })
+                except ImportError:
+                    pass  # Some modules might not be available
+                
+                # Execute with output capture
+                with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error_output):
+                    exec(script_content, safe_globals, {})
+                
+                return jsonify({
+                    "success": True,
+                    "output": output.getvalue(),
+                    "error": error_output.getvalue() if error_output.getvalue() else None
+                })
+                
+            except Exception as exec_error:
+                return jsonify({
+                    "success": False,
+                    "output": "",
+                    "error": f"Execution error: {str(exec_error)}"
+                })
     
     except Exception as e:
         print(f"Error testing script: {e}")
@@ -693,7 +845,7 @@ def get_ble_logs():
 
 @app.route('/api/ble/connect', methods=['POST'])
 def connect_ble():
-    """Start BLE connection in a separate thread"""
+    """Start BLE connection in a separate thread - OS agnostic"""
     global ble_receiver
     
     try:
@@ -704,12 +856,23 @@ def connect_ble():
         ble_receiver = WebAppBLEReceiver(socketio)
         
         def run_ble_async():
+            # Create new event loop for this thread (required on Windows)
+            if IS_WINDOWS:
+                # Windows-specific event loop policy
+                if hasattr(asyncio, 'WindowsProactorEventLoopPolicy'):
+                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 loop.run_until_complete(ble_receiver.run())
+            except Exception as e:
+                print(f"BLE async error: {e}")
             finally:
-                loop.close()
+                try:
+                    loop.close()
+                except:
+                    pass
         
         # Start BLE receiver in a separate thread
         ble_thread = threading.Thread(target=run_ble_async, daemon=True)
@@ -773,9 +936,32 @@ def auto_start_ble():
     pass
 
 if __name__ == '__main__':
+    print(f"🚀 Starting Flask-SocketIO app on {platform.system()}")
+    print(f"📁 Scripts directory: {SCRIPTS_DIR}")
+    print(f"📄 Layout file: {LAYOUT_FILE}")
+    print(f"🐍 Python executable: {get_python_executable()}")
+    
     # Start auto BLE connection in a separate thread
     ble_auto_thread = threading.Thread(target=auto_start_ble, daemon=True)
     ble_auto_thread.start()
     
-    # Run the Flask-SocketIO app
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+    # Platform-specific Flask configuration
+    if IS_WINDOWS:
+        # Windows-specific settings for better compatibility
+        socketio.run(
+            app, 
+            debug=False,  # Disable debug on Windows to avoid reload issues
+            host='0.0.0.0', 
+            port=5000, 
+            allow_unsafe_werkzeug=True,
+            use_reloader=False  # Disable reloader on Windows
+        )
+    else:
+        # Linux/macOS settings
+        socketio.run(
+            app, 
+            debug=True, 
+            host='0.0.0.0', 
+            port=5000, 
+            allow_unsafe_werkzeug=True
+        )
