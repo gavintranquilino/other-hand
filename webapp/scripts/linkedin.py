@@ -2,6 +2,7 @@
 Name: LinkedIn Opener
 Description: Opens LinkedIn in your default browser
 Icon: 💼
+Color: #86d4fd
 """
 
 import webbrowser

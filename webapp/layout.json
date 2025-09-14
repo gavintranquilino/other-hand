@@ -1,10 +1,10 @@
 {
   "100": null,
-  "101": null,
+  "101": "note",
   "110": null,
   "111": null,
-  "000": null,
-  "001": null,
-  "010": null,
-  "011": null
+  "000": "calculator",
+  "001": "linkedin",
+  "010": "music",
+  "011": "weather"
 }

@@ -49,7 +49,7 @@
                         <!-- Column 1 -->
                         <div class="grid-column">
                             <div class="grid-slot" data-slot="000">
-                                <div class="slot-number">1</div>
+                                <div class="slot-number">0</div>
                                 <div class="binary-indicators">
                                     <div class="bit-circle bit-0"></div>
                                     <div class="bit-circle bit-0"></div>
@@ -58,7 +58,7 @@
                                 <div class="module-container"></div>
                             </div>
                             <div class="grid-slot" data-slot="010">
-                                <div class="slot-number">3</div>
+                                <div class="slot-number">2</div>
                                 <div class="binary-indicators">
                                     <div class="bit-circle bit-0"></div>
                                     <div class="bit-circle bit-1"></div>
@@ -67,7 +67,7 @@
                                 <div class="module-container"></div>
                             </div>
                             <div class="grid-slot" data-slot="100">
-                                <div class="slot-number">5</div>
+                                <div class="slot-number">4</div>
                                 <div class="binary-indicators">
                                     <div class="bit-circle bit-1"></div>
                                     <div class="bit-circle bit-0"></div>
@@ -76,7 +76,7 @@
                                 <div class="module-container"></div>
                             </div>
                             <div class="grid-slot" data-slot="110">
-                                <div class="slot-number">7</div>
+                                <div class="slot-number">6</div>
                                 <div class="binary-indicators">
                                     <div class="bit-circle bit-1"></div>
                                     <div class="bit-circle bit-1"></div>
@@ -88,7 +88,7 @@
                         <!-- Column 2 -->
                         <div class="grid-column">
                             <div class="grid-slot" data-slot="001">
-                                <div class="slot-number">2</div>
+                                <div class="slot-number">1</div>
                                 <div class="binary-indicators">
                                     <div class="bit-circle bit-0"></div>
                                     <div class="bit-circle bit-0"></div>
@@ -97,7 +97,7 @@
                                 <div class="module-container"></div>
                             </div>
                             <div class="grid-slot" data-slot="011">
-                                <div class="slot-number">4</div>
+                                <div class="slot-number">3</div>
                                 <div class="binary-indicators">
                                     <div class="bit-circle bit-0"></div>
                                     <div class="bit-circle bit-1"></div>
@@ -106,7 +106,7 @@
                                 <div class="module-container"></div>
                             </div>
                             <div class="grid-slot" data-slot="101">
-                                <div class="slot-number">6</div>
+                                <div class="slot-number">5</div>
                                 <div class="binary-indicators">
                                     <div class="bit-circle bit-1"></div>
                                     <div class="bit-circle bit-0"></div>
@@ -115,7 +115,7 @@
                                 <div class="module-container"></div>
                             </div>
                             <div class="grid-slot" data-slot="111">
-                                <div class="slot-number">8</div>
+                                <div class="slot-number">7</div>
                                 <div class="binary-indicators">
                                     <div class="bit-circle bit-1"></div>
                                     <div class="bit-circle bit-1"></div>
@@ -136,29 +136,38 @@
                 <div id="device-status" class="device-status">
                     <div class="status-item">
                         <span class="status-label">Connection:</span>
-                        <span id="connection-status" class="status-value connected">Connected</span>
-                    </div>
-                    <div class="status-item">
-                        <span class="status-label">Battery:</span>
-                        <span id="battery-level" class="status-value">85%</span>
+                        <span id="connection-status" class="status-value disconnected">Disconnected</span>
+                        <div class="mt-2">
+                            <button id="connect-btn" class="btn btn-success btn-sm me-2" onclick="connectBLE()">Connect</button>
+                            <button id="disconnect-btn" class="btn btn-danger btn-sm" onclick="disconnectBLE()" disabled>Disconnect</button>
+                        </div>
                     </div>
                     <div class="status-item">
                         <span class="status-label">Live Preview:</span>
                         <div id="button-preview" class="button-preview">
                             <div class="preview-grid">
-                                <!-- Row 1: Top row slots (1, 2) -->
-                                <div class="preview-button" data-preview="000"></div>
-                                <div class="preview-button" data-preview="001"></div>
-                                <!-- Row 2: Second row slots (3, 4) -->
-                                <div class="preview-button" data-preview="010"></div>
-                                <div class="preview-button" data-preview="011"></div>
-                                <!-- Row 3: Third row slots (5, 6) -->
-                                <div class="preview-button" data-preview="100"></div>
-                                <div class="preview-button" data-preview="101"></div>
-                                <!-- Row 4: Bottom row slots (7, 8) -->
-                                <div class="preview-button" data-preview="110"></div>
-                                <div class="preview-button" data-preview="111"></div>
+                                <!-- Row 1: Top row slots (0, 1) -->
+                                <div class="preview-button" data-preview="000" title="Module 0"></div>
+                                <div class="preview-button" data-preview="001" title="Module 1"></div>
+                                <!-- Row 2: Second row slots (2, 3) -->
+                                <div class="preview-button" data-preview="010" title="Module 2"></div>
+                                <div class="preview-button" data-preview="011" title="Module 3"></div>
+                                <!-- Row 3: Third row slots (4, 5) -->
+                                <div class="preview-button" data-preview="100" title="Module 4"></div>
+                                <div class="preview-button" data-preview="101" title="Module 5"></div>
+                                <!-- Row 4: Bottom row slots (6, 7) -->
+                                <div class="preview-button" data-preview="110" title="Module 6"></div>
+                                <div class="preview-button" data-preview="111" title="Module 7"></div>
                             </div>
+                        </div>
+                    </div>
+                    <div class="status-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="status-label">BLE Logs:</span>
+                            <button id="toggle-logs-btn" class="btn btn-outline-secondary btn-sm" onclick="toggleLogs()">Show Logs</button>
+                        </div>
+                        <div id="ble-logs-container" class="ble-logs" style="display: none;">
+                            <pre id="ble-logs" class="ble-log-content"></pre>
                         </div>
                     </div>
                 </div>
@@ -190,6 +199,8 @@
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
     <!-- Custom JS -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

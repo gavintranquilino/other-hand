@@ -1,3 +1,5 @@
 flask>=2.3.0
+flask-socketio>=5.3.0
 requests>=2.31.0
 python-dotenv>=1.0.0
+bleak>=0.21.0

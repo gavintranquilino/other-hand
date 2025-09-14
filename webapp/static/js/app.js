@@ -2,6 +2,10 @@
 let modules = [];
 let currentLayout = {};
 let sortableInstances = [];
+let socket = null;
+let bleConnected = false;
+let logsVisible = false;
+let buttonPressTimeout = null;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', async function() {
@@ -9,8 +13,282 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadLayout();
     setupDragAndDrop();
     setupEventListeners();
-    startDeviceSimulation();
+    setupSocketIO();
+    checkBLEStatus();
 });
+
+// Setup Socket.IO connection
+function setupSocketIO() {
+    socket = io();
+    
+    socket.on('connect', function() {
+        console.log('Connected to server');
+        socket.emit('request_ble_status');
+    });
+    
+    socket.on('disconnect', function() {
+        console.log('Disconnected from server');
+    });
+    
+    socket.on('ble_status', function(data) {
+        updateConnectionStatus(data.connected);
+    });
+    
+    socket.on('button_press', function(data) {
+        handleButtonPress(data);
+    });
+    
+    socket.on('ble_log', function(data) {
+        addLogEntry(data);
+    });
+    
+    socket.on('ble_logs', function(data) {
+        updateLogs(data.logs);
+    });
+}
+
+// BLE Management Functions
+async function connectBLE() {
+    const connectBtn = document.getElementById('connect-btn');
+    const disconnectBtn = document.getElementById('disconnect-btn');
+    
+    connectBtn.disabled = true;
+    connectBtn.textContent = 'Connecting...';
+    updateConnectionStatus('connecting');
+    
+    try {
+        const response = await fetch('/api/ble/connect', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('BLE connection initiated', 'success');
+        } else {
+            showStatus(`Connection failed: ${result.error}`, 'error');
+            updateConnectionStatus(false);
+        }
+    } catch (error) {
+        showStatus(`Connection error: ${error.message}`, 'error');
+        updateConnectionStatus(false);
+    } finally {
+        connectBtn.disabled = false;
+        connectBtn.textContent = 'Connect';
+    }
+}
+
+async function disconnectBLE() {
+    const connectBtn = document.getElementById('connect-btn');
+    const disconnectBtn = document.getElementById('disconnect-btn');
+    
+    disconnectBtn.disabled = true;
+    disconnectBtn.textContent = 'Disconnecting...';
+    
+    try {
+        const response = await fetch('/api/ble/disconnect', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('BLE disconnected', 'info');
+            updateConnectionStatus(false);
+        } else {
+            showStatus(`Disconnect failed: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showStatus(`Disconnect error: ${error.message}`, 'error');
+    } finally {
+        disconnectBtn.disabled = false;
+        disconnectBtn.textContent = 'Disconnect';
+    }
+}
+
+async function checkBLEStatus() {
+    try {
+        const response = await fetch('/api/ble/status');
+        const status = await response.json();
+        
+        updateConnectionStatus(status.connected);
+        if (status.logs) {
+            updateLogs(status.logs);
+        }
+        if (status.last_button) {
+            handleButtonPress(status.last_button);
+        }
+    } catch (error) {
+        console.error('Error checking BLE status:', error);
+    }
+}
+
+function updateConnectionStatus(connected) {
+    bleConnected = connected;
+    const statusElement = document.getElementById('connection-status');
+    const connectBtn = document.getElementById('connect-btn');
+    const disconnectBtn = document.getElementById('disconnect-btn');
+    
+    if (connected === 'connecting') {
+        statusElement.textContent = 'Connecting...';
+        statusElement.className = 'status-value connecting';
+        connectBtn.disabled = true;
+        disconnectBtn.disabled = true;
+    } else if (connected) {
+        statusElement.textContent = 'Connected';
+        statusElement.className = 'status-value connected';
+        connectBtn.disabled = true;
+        disconnectBtn.disabled = false;
+    } else {
+        statusElement.textContent = 'Disconnected';
+        statusElement.className = 'status-value disconnected';
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+        
+        // Clear any active button states
+        clearButtonStates();
+    }
+}
+
+function handleButtonPress(data) {
+    // Update preview button
+    updatePreviewButton(data.slot, data.pressed);
+    
+    // Highlight the corresponding grid slot
+    highlightGridSlot(data.slot, data.pressed);
+    
+    // Add log entry for display
+    if (logsVisible) {
+        const logMessage = `🔘 Module ${data.module_number} ${data.pressed ? 'pressed' : 'released'}`;
+        addLogEntry({
+            timestamp: new Date().toLocaleTimeString(),
+            message: logMessage,
+            level: 'info'
+        });
+    }
+}
+
+function updatePreviewButton(slot, pressed) {
+    const previewButton = document.querySelector(`[data-preview="${slot}"]`);
+    if (previewButton) {
+        if (pressed) {
+            previewButton.classList.add('active', 'flash');
+            // Remove flash class after animation
+            setTimeout(() => {
+                previewButton.classList.remove('flash');
+            }, 300);
+        } else {
+            previewButton.classList.remove('active');
+        }
+    }
+}
+
+function highlightGridSlot(slot, pressed) {
+    const gridSlot = document.querySelector(`[data-slot="${slot}"]`);
+    if (gridSlot) {
+        if (pressed) {
+            gridSlot.classList.add('button-pressed');
+            
+            // Clear any existing timeout
+            if (buttonPressTimeout) {
+                clearTimeout(buttonPressTimeout);
+            }
+        } else {
+            gridSlot.classList.remove('button-pressed');
+        }
+    }
+}
+
+function clearButtonStates() {
+    // Clear all preview buttons
+    document.querySelectorAll('.preview-button').forEach(button => {
+        button.classList.remove('active');
+    });
+    
+    // Clear all grid slot highlights
+    document.querySelectorAll('.grid-slot').forEach(slot => {
+        slot.classList.remove('button-pressed');
+    });
+}
+
+function cleanupDragStates() {
+    // Remove all drag-related classes from all elements
+    document.querySelectorAll('.grid-slot').forEach(slot => {
+        slot.classList.remove('drop-zone-available', 'drop-zone-hover', 'drag-over', 'sortable-over');
+    });
+    
+    // Remove drag classes from module pool
+    const modulePool = document.getElementById('module-pool');
+    if (modulePool) {
+        modulePool.classList.remove('drop-zone-available', 'drop-zone-hover');
+    }
+    
+    // Remove any remaining drag classes from draggable items
+    document.querySelectorAll('.module-item').forEach(item => {
+        item.classList.remove('dragging', 'sortable-drag', 'sortable-chosen', 'sortable-ghost');
+    });
+    
+    console.log('Cleaned up all drag states');
+}
+
+function toggleLogs() {
+    const logsContainer = document.getElementById('ble-logs-container');
+    const toggleBtn = document.getElementById('toggle-logs-btn');
+    
+    logsVisible = !logsVisible;
+    
+    if (logsVisible) {
+        logsContainer.style.display = 'block';
+        toggleBtn.textContent = 'Hide Logs';
+        toggleBtn.classList.remove('btn-outline-secondary');
+        toggleBtn.classList.add('btn-secondary');
+    } else {
+        logsContainer.style.display = 'none';
+        toggleBtn.textContent = 'Show Logs';
+        toggleBtn.classList.remove('btn-secondary');
+        toggleBtn.classList.add('btn-outline-secondary');
+    }
+}
+
+function addLogEntry(logEntry) {
+    if (!logsVisible) return;
+    
+    const logsElement = document.getElementById('ble-logs');
+    const logLine = `[${logEntry.timestamp}] ${logEntry.message}`;
+    
+    // Add new log entry
+    if (logsElement.textContent) {
+        logsElement.textContent += '\n' + logLine;
+    } else {
+        logsElement.textContent = logLine;
+    }
+    
+    // Auto-scroll to bottom
+    logsElement.scrollTop = logsElement.scrollHeight;
+    
+    // Limit log lines (keep last 50 lines visible)
+    const lines = logsElement.textContent.split('\n');
+    if (lines.length > 50) {
+        logsElement.textContent = lines.slice(-50).join('\n');
+    }
+}
+
+function updateLogs(logs) {
+    if (!logsVisible) return;
+    
+    const logsElement = document.getElementById('ble-logs');
+    logsElement.textContent = '';
+    
+    logs.forEach(logEntry => {
+        addLogEntry(logEntry);
+    });
+}
 
 // Load available modules from the backend
 async function loadModules() {
@@ -171,10 +449,8 @@ function setupDragAndDrop() {
         onEnd: function(evt) {
             console.log('Drag ended');
             evt.item.classList.remove('dragging');
-            // Remove all highlights
-            document.querySelectorAll('.grid-slot').forEach(slot => {
-                slot.classList.remove('drop-zone-available', 'drop-zone-hover');
-            });
+            // Remove all highlights and drag-related classes
+            cleanupDragStates();
         },
         onAdd: function(evt) {
             console.log('Module returned to pool:', evt.item?.dataset?.moduleId);
@@ -244,11 +520,8 @@ function setupDragAndDrop() {
             onEnd: function(evt) {
                 console.log('Drag ended from grid slot');
                 evt.item.classList.remove('dragging');
-                // Remove highlights
-                document.querySelectorAll('.grid-slot').forEach(slot => {
-                    slot.classList.remove('drop-zone-available', 'drop-zone-hover');
-                });
-                modulePool.classList.remove('drop-zone-available', 'drop-zone-hover');
+                // Remove highlights and drag-related classes
+                cleanupDragStates();
             },
             onMove: function(evt) {
                 // Visual feedback when hovering over drop zones
@@ -305,8 +578,8 @@ function setupDragAndDrop() {
                 // Auto-save the layout
                 saveLayoutSilently();
                 
-                // Simulate button press for demo
-                simulateButtonPress(targetSlot);
+                // Clean up any remaining drag states
+                cleanupDragStates();
             },
             onRemove: function(evt) {
                 // In event handlers, evt.from is the actual DOM element (.module-container)
@@ -928,24 +1201,7 @@ function showStatus(message, type) {
     }, 3000);
 }
 
-// Device simulation functions
-function startDeviceSimulation() {
-    // Simulate connection status
-    updateConnectionStatus();
-    
-    // Simulate battery level changes
-    updateBatteryLevel();
-    
-    // Initialize live preview with current layout
-    updateLivePreview();
-    
-    // Update every 30 seconds for demo purposes
-    setInterval(() => {
-        updateConnectionStatus();
-        updateBatteryLevel();
-    }, 30000);
-}
-
+// Live preview update function
 function updateLivePreview() {
     console.log('Updating live preview with current layout:', currentLayout);
     
@@ -963,7 +1219,10 @@ function updateLivePreview() {
             const module = modules.find(m => m.id === moduleId);
             if (module) {
                 previewButton.innerHTML = module.icon;
-                previewButton.style.fontSize = '12px';
+                previewButton.style.fontSize = '10px';
+                previewButton.style.display = 'flex';
+                previewButton.style.alignItems = 'center';
+                previewButton.style.justifyContent = 'center';
                 if (module.color) {
                     previewButton.style.backgroundColor = module.color;
                 } else {
@@ -975,28 +1234,7 @@ function updateLivePreview() {
     });
 }
 
-function updateConnectionStatus() {
-    const statusElement = document.getElementById('connection-status');
-    const isConnected = Math.random() > 0.1; // 90% connected
-    
-    statusElement.textContent = isConnected ? 'Connected' : 'Disconnected';
-    statusElement.className = `status-value ${isConnected ? 'connected' : 'disconnected'}`;
-}
-
-function updateBatteryLevel() {
-    const batteryElement = document.getElementById('battery-level');
-    const currentLevel = parseInt(batteryElement.textContent);
-    const newLevel = Math.max(20, currentLevel - Math.floor(Math.random() * 5));
-    
-    batteryElement.textContent = `${newLevel}%`;
-}
-
-function simulateButtonPress(slot) {
-    const previewButton = document.querySelector(`[data-preview="${slot}"]`);
-    if (previewButton) {
-        previewButton.classList.add('active');
-        setTimeout(() => {
-            previewButton.classList.remove('active');
-        }, 1000);
-    }
-}
+// Make functions available globally for onclick handlers
+window.connectBLE = connectBLE;
+window.disconnectBLE = disconnectBLE;
+window.toggleLogs = toggleLogs;

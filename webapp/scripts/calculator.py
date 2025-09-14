@@ -3,6 +3,7 @@ Name: Calculator
 Description: Perform basic mathematical calculations.
 Icon: 🧮
 Color: #ffb347
+Activation: On Press
 """
 
 import random

@@ -3,6 +3,7 @@ Name: Weather Check
 Description: Check and display current weather information.
 Icon: 🌤️
 Color: #87CEEB
+Activation: Hold 10s
 """
 
 import random

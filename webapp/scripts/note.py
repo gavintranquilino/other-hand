@@ -2,6 +2,8 @@
 Name: Quick Note
 Description: Display a quick reminder or note message.
 Icon: 📝
+Color: #90EE90
+Activation: Hold 3s
 """
 
 def main():
