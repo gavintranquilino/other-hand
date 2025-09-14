@@ -45,14 +45,13 @@ class MyServerCallbacks: public BLEServerCallbacks {
 #define NUM_LEDS 3          // Number of LEDs in the strip
 #define LED_TYPE WS2812     // Type of LED strip
 #define COLOR_ORDER GRB     // Color order for WS2812
-#define LED_STATES 4       // Number of LED states (e.g., off, red, green, blue)
+#define LED_STATES 5       // Number of LED states (e.g., off, red, green, blue)
 
 #define LED_0 0
 #define LED_1 1
 #define LED_2 2
 
 #define BUTTON D1
-
 
 
 CRGB leds[NUM_LEDS];
@@ -83,6 +82,7 @@ CRGB redLEDs = CRGB(255, 0, 0);
 CRGB greenLEDs = CRGB(0, 255, 0);
 CRGB blueLEDs = CRGB(0, 0, 255);
 CRGB offLEDs = CRGB(0, 0, 0);
+CRGB orangeLEDs = CRGB(255, 165, 0);
 
 
 void setup() {
@@ -254,6 +254,7 @@ void setup() {
 }
 
 void loop() {
+
   // Check for disconnection
   if (!deviceConnected && oldDeviceConnected) {
     Serial.println("*** CLIENT DISCONNECTED! ***");
@@ -264,6 +265,52 @@ void loop() {
   if (deviceConnected && !oldDeviceConnected) {
     Serial.println("*** CLIENT CONNECTED! ***");
     oldDeviceConnected = deviceConnected;
+  }
+
+  // DISCONNECT CHECK - Block all actions if not connected
+  if (!deviceConnected) {
+    // Set all LEDs to orange to indicate disconnected state
+
+    encoderPos = 0; // Reset encoder position
+    ledActive = 0; // Reset LED state
+
+    leds[LED_0] = orangeLEDs;
+    leds[LED_1] = orangeLEDs;
+    leds[LED_2] = orangeLEDs;
+    FastLED.show();
+    
+    // Actively try to reconnect by ensuring advertising is running
+    static unsigned long lastReconnectAttempt = 0;
+    if (millis() - lastReconnectAttempt > 5000) { // Try every 5 seconds
+      Serial.println("🔄 Attempting reconnection - restarting advertising...");
+      BLEDevice::startAdvertising();
+      Serial.println("📡 BLE Advertising active - device discoverable");
+      lastReconnectAttempt = millis();
+    }
+
+    
+    
+    // Block all other functionality - just wait for reconnection
+    delay(100); // Small delay to prevent excessive loop execution
+    return; // Exit loop early, skip all encoder and button processing
+  }
+
+  // NORMAL OPERATION - Only execute when connected
+
+  // Updating HUE Values
+
+  CHSV rainbowLEDs = CHSV(hue, 255, 255);
+
+  if (ledActive == 4) {
+
+    hue++;
+    
+    if (hue > 255) {
+      hue = 0;
+    }
+
+  } else {
+    hue = 0;
   }
 
   // Read current states
@@ -349,6 +396,20 @@ void loop() {
           FastLED.show();
           break;
 
+        case 4:
+
+          
+          // Each LED gets a different hue, spaced evenly across the rainbow
+          leds[LED_0] = rainbowLEDs;
+          leds[LED_1] = offLEDs;
+          leds[LED_2] = offLEDs;
+          
+
+          FastLED.show();
+
+          break;
+
+
         default:
           break;
 
@@ -393,6 +454,17 @@ void loop() {
           FastLED.show();
           break;
 
+        case 4:
+          // Each LED gets a different hue, spaced evenly across the rainbow
+          leds[LED_0] = offLEDs;
+          leds[LED_1] = rainbowLEDs;
+          leds[LED_2] = offLEDs;
+          
+
+          FastLED.show();
+
+          break;
+
         default:
           break;
 
@@ -433,6 +505,17 @@ void loop() {
           leds[LED_1] = blueLEDs;
           leds[LED_2] = offLEDs;
           FastLED.show();
+          break;
+
+        case 4:
+          // Each LED gets a different hue, spaced evenly across the rainbow
+          leds[LED_0] = rainbowLEDs;
+          leds[LED_1] = rainbowLEDs;
+          leds[LED_2] = offLEDs;
+          
+
+          FastLED.show();
+
           break;
 
         default:
@@ -478,6 +561,17 @@ void loop() {
           leds[LED_2] = blueLEDs;
           FastLED.show();
           break;
+
+        case 4:
+          // Each LED gets a different hue, spaced evenly across the rainbow
+          leds[LED_0] = offLEDs;
+          leds[LED_1] = offLEDs;
+          leds[LED_2] = rainbowLEDs;
+          
+
+          FastLED.show();
+
+          break;  
         
 
         default:
@@ -524,6 +618,17 @@ void loop() {
           FastLED.show();
           break;
 
+        case 4:
+          // Each LED gets a different hue, spaced evenly across the rainbow
+          leds[LED_0] = rainbowLEDs;
+          leds[LED_1] = offLEDs;
+          leds[LED_2] = rainbowLEDs;
+          
+
+          FastLED.show();
+
+          break;  
+
         default:
           break;
 
@@ -565,6 +670,17 @@ void loop() {
           leds[LED_1] = blueLEDs;
           leds[LED_2] = blueLEDs;
           FastLED.show();
+          break;
+        
+        case 4:
+          // Each LED gets a different hue, spaced evenly across the rainbow
+          leds[LED_0] = offLEDs;
+          leds[LED_1] = rainbowLEDs;
+          leds[LED_2] = rainbowLEDs;
+          
+
+          FastLED.show();
+
           break;
 
         default:
@@ -608,6 +724,17 @@ void loop() {
           leds[LED_2] = blueLEDs;
           FastLED.show();
           break;
+
+        case 4:
+          // Each LED gets a different hue, spaced evenly across the rainbow
+          leds[LED_0] = rainbowLEDs;
+          leds[LED_1] = rainbowLEDs;
+          leds[LED_2] = rainbowLEDs;
+          
+
+          FastLED.show();
+
+          break;  
 
         default:
           break;
@@ -655,21 +782,41 @@ void loop() {
   Serial.println(currentButtonStateSending);
 
   if (currentButtonStateSending != lastButtonStateSending && currentButtonStateSending == LOW) {
-
-    // Send the current position via BLE
+    // Button pressed - send encoderPos and button state (1)
 
     if (deviceConnected) {
-      char posString[4];
-      snprintf(posString, sizeof(posString), "%d", encoderPos);
-      pCharacteristic->setValue((uint8_t*)posString, strlen(posString));
+      char message[16];
+      snprintf(message, sizeof(message), "%d,%d", encoderPos, 1);
+      pCharacteristic->setValue((uint8_t*)message, strlen(message));
       pCharacteristic->notify();
-      Serial.print("Sent position via BLE: ");
-      Serial.println(posString);
+      Serial.print("Sent via BLE - Position: ");
+      Serial.print(encoderPos);
+      Serial.println(", Button: PRESSED (1)");
     } else {
       Serial.println("Cannot send position - no device connected");
     }
 
     Serial.println("Send Button pressed!");
+    delay(50); // Simple button debounce
+    
+  }
+
+  if (currentButtonStateSending != lastButtonStateSending && currentButtonStateSending == HIGH) {
+    // Button released - send encoderPos and button state (0)
+
+    if (deviceConnected) {
+      char message[16];
+      snprintf(message, sizeof(message), "%d,%d", encoderPos, 0);
+      pCharacteristic->setValue((uint8_t*)message, strlen(message));
+      pCharacteristic->notify();
+      Serial.print("Sent via BLE - Position: ");
+      Serial.print(encoderPos);
+      Serial.println(", Button: RELEASED (0)");
+    } else {
+      Serial.println("Cannot send position - no device connected");
+    }
+
+    Serial.println("Send Button released!");
     delay(50); // Simple button debounce
     
   }
