@@ -1,16 +1,16 @@
 """
-Name: LinkedIn Opener
-Description: Opens LinkedIn in your default browser
-Icon: 💼
-Color: #86d4fd
-Activiation: On Press
+Name: Watch RLCS 
+Description: Watch the RLCS 2024-2025 World Championships live on Twitch
+Icon: ⚽
+Color: #FF8400
+Activate: On Press
 """
 
 import webbrowser
 
 def main():
-    """Open LinkedIn in the default browser"""
-    linkedin_url = "https://www.linkedin.com"
+    """Open RLCS in the default browser"""
+    linkedin_url = "https://www.twitch.tv/rocketleague"
     
     try:
         # Use webbrowser module - works on all platforms!
