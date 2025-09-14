@@ -1,7 +1,7 @@
 """
 Name: Camera Photo
 Description: Takes a photo with the camera if available
-Icon: 📷
+Icon: 📸
 Color: #FF6347
 Activate: On Press
 """
